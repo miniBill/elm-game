@@ -140,7 +140,7 @@ applyAccelerations deltaT =
 
 maxSpeed : Speed
 maxSpeed =
-    Speed.kilometersPerHour 100
+    Speed.kilometersPerHour 1000
 
 
 {-| Force a very small vector to zero. Avoids "wiggles".
@@ -261,23 +261,8 @@ update msg model =
                 | now = frameStuff.timestamp
                 , world =
                     world
-                        |> System.update positionSpec
-                            (if
-                                List.any
-                                    (\gamepad -> Gamepad.wasReleased gamepad Gamepad.B)
-                                    frameStuff.gamepads
-                             then
-                                Component.set model.ball
-                                    Vector2d.zero
-
-                             else
-                                identity
-                            )
-                        |> System.update accelerationSpec
-                            (Component.set
-                                model.ball
-                                (gamepadToAccelleration frameStuff.gamepads)
-                            )
+                        |> resetBall frameStuff model
+                        |> applyGamepadInput model frameStuff
                         |> applySpeeds deltaT
                         |> applyAccelerations deltaT
               }
@@ -293,20 +278,48 @@ update msg model =
             )
 
 
+resetBall : FrameStuff -> Model -> System World
+resetBall frameStuff model =
+    System.update positionSpec
+        (if
+            List.any
+                (\gamepad -> Gamepad.wasReleased gamepad Gamepad.B)
+                frameStuff.gamepads
+         then
+            Component.set model.ball
+                Vector2d.zero
+
+         else
+            identity
+        )
+
+
+applyGamepadInput : Model -> FrameStuff -> (World -> World)
+applyGamepadInput model frameStuff =
+    System.update accelerationSpec
+        (Component.set
+            model.ball
+            (gamepadToAccelleration frameStuff.gamepads)
+        )
+
+
 gamepadToAccelleration : List Gamepad -> Vector2d MetersPerSecondSquared
 gamepadToAccelleration gamepads =
     let
+        scale : Float -> Acceleration.Acceleration
+        scale n =
+            Acceleration.metersPerSecondSquared <| n * 10000
+
         applyGamepad : Gamepad -> Vector2d MetersPerSecondSquared -> Vector2d MetersPerSecondSquared
         applyGamepad gamepad acc =
             acc
                 |> Vector2d.plus
-                    (Vector2d.fromRecord
-                        (\n -> Acceleration.metersPerSecondSquared <| n * 100)
+                    (Vector2d.fromRecord scale
                         (Gamepad.leftStickPosition gamepad)
                     )
     in
     List.foldl applyGamepad Vector2d.zero gamepads
-        |> preventWiggle (Acceleration.metersPerSecondSquared 8)
+        |> preventWiggle (scale 0.08)
 
 
 subscriptions : Model -> Sub Msg
