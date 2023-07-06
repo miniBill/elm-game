@@ -184,7 +184,7 @@ subscriptions model =
 
 audio : InnerModel -> List WebAudio.Node
 audio model =
-    if model.focused then
+    if model.focused && 1 == sqrt 2 then
         [ WebAudio.oscillator
             [ model.game
                 |> Game.time

@@ -1,7 +1,9 @@
-module Game exposing (Flags, Model, Msg, World, init, subscriptions, time, update, view)
+module Game exposing (Flags, Model, Msg, Vector2d, World, init, subscriptions, time, update, view)
 
+import Acceleration exposing (MetersPerSecondSquared)
 import Browser.Events
 import Circle2d exposing (Circle2d)
+import Duration
 import Ecs
 import Ecs.Component as Component
 import Ecs.Config as Config
@@ -9,12 +11,27 @@ import Ecs.Entity as Entity
 import Ecs.System as System exposing (System)
 import Effect exposing (Effect)
 import Html exposing (Html)
-import Point2d exposing (Point2d)
+import Length exposing (Meters)
+import Point2d
+import Quantity
+import Speed exposing (MetersPerSecond)
 import Time
-import Vector2d exposing (Vector2d)
+import Vector2d
 import WebGL.Shape2d as Shape2d exposing (Color, rgb)
 import WebGL.Shape2d.Render as Render exposing (Height, Width)
 import WebGL.Shape2d.SolidShape as SolidShape exposing (SolidShape)
+
+
+type alias Vector2d unit =
+    Vector2d.Vector2d unit ()
+
+
+type alias Point2d =
+    Point2d.Point2d Meters ()
+
+
+type alias Circle2d =
+    Circle2d.Circle2d Meters ()
 
 
 type alias Flags =
@@ -40,8 +57,9 @@ type alias Model =
 
 type alias World =
     { ecsConfig : Ecs.Config
-    , positionComponent : Ecs.Component Vector2d
-    , velocityComponent : Ecs.Component Vector2d
+    , positionComponent : Ecs.Component (Vector2d Meters)
+    , velocityComponent : Ecs.Component (Vector2d MetersPerSecond)
+    , accelerationComponent : Ecs.Component (Vector2d MetersPerSecondSquared)
     }
 
 
@@ -52,17 +70,24 @@ ecsConfigSpec =
     }
 
 
-positionSpec : Component.Spec Vector2d World
+positionSpec : Component.Spec (Vector2d Meters) World
 positionSpec =
     { get = .positionComponent
     , set = \positionComponent world -> { world | positionComponent = positionComponent }
     }
 
 
-velocitySpec : Component.Spec Vector2d World
+velocitySpec : Component.Spec (Vector2d MetersPerSecond) World
 velocitySpec =
     { get = .velocityComponent
     , set = \velocityComponent world -> { world | velocityComponent = velocityComponent }
+    }
+
+
+accelerationSpec : Component.Spec (Vector2d MetersPerSecondSquared) World
+accelerationSpec =
+    { get = .accelerationComponent
+    , set = \accelerationComponent world -> { world | accelerationComponent = accelerationComponent }
     }
 
 
@@ -70,10 +95,26 @@ positionSystem : System World
 positionSystem =
     System.map2
         (\( velocity, _ ) ( position, setPosition ) ->
-            setPosition (Vector2d.sum velocity position)
+            let
+                deltaX : Vector2d Meters
+                deltaX =
+                    Vector2d.for Duration.millisecond velocity
+            in
+            setPosition (Vector2d.plus deltaX position)
         )
         velocitySpec
         positionSpec
+
+
+{-| Force a very small vector to zero. Avoids "wiggles".
+-}
+antiwiggle : Vector2d.Vector2d units coordinates -> Vector2d.Vector2d units coordinates
+antiwiggle vec =
+    if abs (Quantity.unwrap (Vector2d.length vec)) < 0.001 then
+        Vector2d.zero
+
+    else
+        vec
 
 
 view : Model -> Html Msg
@@ -129,9 +170,9 @@ viewBall ({ ball } as model) =
             Component.get ball model.world.positionComponent
                 |> Maybe.withDefault Vector2d.zero
                 |> Vector2d.components
-                |> Point2d.fromCoordinates
+                |> (\( x, y ) -> Point2d.xy x y)
     in
-    circle (rgb 255 0 0) (Circle2d.withRadius 0.1 center)
+    circle (rgb 255 0 0) (Circle2d.withRadius (Length.centimeters 10) center)
 
 
 rectangle : Color -> Width -> Height -> SolidShape
@@ -146,24 +187,36 @@ circle color circ =
         r : Float
         r =
             Circle2d.radius circ
+                |> Length.inMeters
 
-        ( dx, dy ) =
+        move : { x : Float, y : Float }
+        move =
             Circle2d.centerPoint circ
-                |> Point2d.coordinates
+                |> Point2d.toMeters
     in
     Render.circle color
         |> SolidShape.shape (r * 2) (r * 2)
-        |> Shape2d.move dx dy
+        |> Shape2d.move move.x move.y
 
 
 update : Msg -> Model -> ( Model, Effect )
 update msg model =
     case msg of
         Tick now ->
+            let
+                world =
+                    model.world
+            in
             ( { model
                 | now = now
                 , world =
-                    model.world
+                    { world
+                        | accelerationComponent =
+                            Component.set
+                                model.ball
+                                (gamepadToAccelleration model)
+                                world.accelerationComponent
+                    }
                         |> positionSystem
               }
             , Effect.none
@@ -176,6 +229,11 @@ update msg model =
               }
             , Effect.none
             )
+
+
+gamepadToAccelleration : Model -> Vector2d MetersPerSecondSquared
+gamepadToAccelleration _ =
+    Vector2d.zero
 
 
 subscriptions : Model -> Sub Msg
@@ -194,19 +252,15 @@ init flags =
             { ecsConfig = Config.init
             , positionComponent = Component.empty
             , velocityComponent = Component.empty
+            , accelerationComponent = Component.empty
             }
 
         ( ball, world ) =
             initialWorld
                 |> Entity.create ecsConfigSpec
-                |> Entity.with
-                    ( positionSpec
-                    , Vector2d.fromComponents ( 1, 0 )
-                    )
-                |> Entity.with
-                    ( velocitySpec
-                    , Vector2d.fromComponents ( 0, 0 )
-                    )
+                |> Entity.with ( positionSpec, Vector2d.zero )
+                |> Entity.with ( velocitySpec, Vector2d.zero )
+                |> Entity.with ( accelerationSpec, Vector2d.zero )
 
         model : Model
         model =
