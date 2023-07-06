@@ -66,13 +66,21 @@ positionSystem =
     System.map
         (\position ->
             let
+                antiwiggle : Float -> Float
+                antiwiggle x =
+                    if abs x < 0.0001 then
+                        0
+
+                    else
+                        x
+
                 dx : Float
                 dx =
-                    -0.01 * position.x
+                    max 0 <| antiwiggle <| -0.01 * position.x
 
                 dy : Float
                 dy =
-                    -0.01 * position.y
+                    antiwiggle <| -0.01 * position.y
             in
             { x = position.x + dx
             , y = position.y + dy
@@ -84,23 +92,26 @@ positionSystem =
 view : Model -> Html Msg
 view model =
     let
-        dx : Float
-        dx =
-            -model.width / 2
-
-        dy : Float
-        dy =
-            -model.height / 2
+        scale : Float
+        scale =
+            min model.width model.height / 2
     in
     Shape2d.view
         { screen = model
         , entities =
-            [ viewBall model ]
+            [ viewBall model
+            , viewEdge model
+            ]
                 |> SolidShape.group
-                |> Shape2d.move dx dy
+                |> Shape2d.scale scale scale
                 |> List.singleton
                 |> SolidShape.toEntities model
         }
+
+
+viewEdge : Model -> SolidShape
+viewEdge _ =
+    rectangle (rgb 0 0 0) 2 2
 
 
 viewBall : Model -> SolidShape
@@ -114,7 +125,7 @@ viewBall ({ ball } as model) =
                 Just { x, y } ->
                     ( x, y )
     in
-    rectangle (rgb 255 0 0) 10 10
+    rectangle (rgb 255 0 0) 0.2 0.2
         |> Shape2d.move dx dy
 
 
@@ -153,7 +164,7 @@ init flags =
                 |> Entity.create ecsConfigSpec
                 |> Entity.with
                     ( positionSpec
-                    , { x = min flags.width flags.height / 4
+                    , { x = 1
                       , y = 0
                       }
                     )
@@ -163,8 +174,8 @@ init flags =
             { world = world
             , ball = ball
             , now = flags.now
-            , width = 2 * flags.width
-            , height = 2 * flags.height
+            , width = flags.width
+            , height = flags.height
             }
     in
     ( model
