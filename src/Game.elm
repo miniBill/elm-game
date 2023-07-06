@@ -4,7 +4,7 @@ import Acceleration exposing (MetersPerSecondSquared)
 import Browser.Events
 import Circle2d exposing (Circle2d)
 import Direction2d
-import Duration
+import Duration exposing (Duration)
 import Ecs
 import Ecs.Component as Component
 import Ecs.Config as Config
@@ -15,7 +15,7 @@ import Html exposing (Html)
 import Length exposing (Meters)
 import Point2d
 import Quantity
-import Speed exposing (MetersPerSecond)
+import Speed exposing (MetersPerSecond, Speed)
 import Time
 import Vector2d
 import WebGL.Shape2d as Shape2d exposing (Color, rgb)
@@ -96,14 +96,14 @@ accelerationSpec =
     }
 
 
-positionSystem : System World
-positionSystem =
+positionSystem : Duration -> System World
+positionSystem deltaT =
     System.map2
         (\( speed, _ ) ( position, setPosition ) ->
             let
                 deltaX : Vector2d Meters
                 deltaX =
-                    Vector2d.for Duration.millisecond speed
+                    Vector2d.for deltaT speed
             in
             setPosition (Vector2d.plus deltaX position)
         )
@@ -111,25 +111,28 @@ positionSystem =
         positionSpec
 
 
-speedSystem : System World
-speedSystem =
+speedSystem : Duration -> System World
+speedSystem deltaT =
     System.map2
         (\( accelleration, _ ) ( speed, setSpeed ) ->
             let
                 deltaV : Vector2d MetersPerSecond
                 deltaV =
-                    Vector2d.for Duration.millisecond accelleration
+                    Vector2d.for deltaT accelleration
 
                 newSpeed : Vector2d MetersPerSecond
                 newSpeed =
-                    speed |> Vector2d.plus deltaV
-            in
-            speed
-                |> Vector2d.scaleTo
-                    (Quantity.min
+                    speed
+                        |> Vector2d.plus deltaV
+
+                limiter : Speed
+                limiter =
+                    Quantity.min
                         (Vector2d.length newSpeed)
-                        (Speed.metersPerSecond 1)
-                    )
+                        (Speed.kilometersPerHour 20)
+            in
+            newSpeed
+                |> Vector2d.scaleTo limiter
                 |> antiwiggle
                 |> setSpeed
         )
@@ -171,7 +174,7 @@ view model =
 
 viewBackground : Model -> SolidShape
 viewBackground _ =
-    rectangle bgColor 2 2
+    rectangle bgColor 200 200
 
 
 bgColor : Color
@@ -182,15 +185,20 @@ bgColor =
 viewClipper : Model -> SolidShape
 viewClipper _ =
     SolidShape.group
-        [ rectangle bgColor 1000 1000
-            |> Shape2d.move (-1001 + 1000 / 2) 0
-        , rectangle bgColor 1000 1000
-            |> Shape2d.move (1001 - 1000 / 2) 0
-        , rectangle bgColor 1000 1000
-            |> Shape2d.move 0 (-1001 + 1000 / 2)
-        , rectangle bgColor 1000 1000
-            |> Shape2d.move 0 (1001 - 1000 / 2)
+        [ rectangle clipColor 1000 1000
+            |> Shape2d.move (-1100 + 1000 / 2) 0
+        , rectangle clipColor 1000 1000
+            |> Shape2d.move (1100 - 1000 / 2) 0
+        , rectangle clipColor 1000 1000
+            |> Shape2d.move 0 (-1100 + 1000 / 2)
+        , rectangle clipColor 1000 1000
+            |> Shape2d.move 0 (1100 - 1000 / 2)
         ]
+
+
+clipColor : Color
+clipColor =
+    rgb 0 255 0
 
 
 viewBall : Model -> SolidShape
@@ -238,6 +246,12 @@ update msg model =
                 world : World
                 world =
                     model.world
+
+                deltaT : Duration
+                deltaT =
+                    (Time.posixToMillis now - Time.posixToMillis model.now)
+                        |> toFloat
+                        |> Duration.milliseconds
             in
             ( { model
                 | now = now
@@ -249,8 +263,8 @@ update msg model =
                                 (gamepadToAccelleration model)
                                 world.accelerationComponent
                     }
-                        |> positionSystem
-                        |> speedSystem
+                        |> positionSystem deltaT
+                        |> speedSystem deltaT
               }
             , Effect.none
             )
@@ -269,7 +283,7 @@ gamepadToAccelleration model =
     let
         direction : Direction2d
         direction =
-            Direction2d.degrees <| 0.0000000001 * toFloat (Time.posixToMillis model.now)
+            Direction2d.degrees <| toFloat (Time.posixToMillis model.now)
     in
     Vector2d.withLength (Acceleration.gees 1) direction
 
