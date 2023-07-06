@@ -1,5 +1,8 @@
 module Audio exposing (Partial, destination, gain, note)
 
+import Music.Pitch as Pitch
+import Music.PitchClass as PitchClass
+import Music.Scale as Scale
 import WebAudio
 import WebAudio.Property
 
@@ -13,9 +16,10 @@ gain value =
     partial WebAudio.gain [ WebAudio.Property.gain value ]
 
 
-delay : Float -> Partial -> Partial
-delay value =
-    partial WebAudio.delay [ WebAudio.Property.delayTime value ]
+
+-- delay : Float -> Partial -> Partial
+-- delay value =
+--     partial WebAudio.delay [ WebAudio.Property.delayTime value ]
 
 
 partial :
@@ -34,4 +38,7 @@ destination next =
 
 note : Int -> Float
 note n =
-    440 * 2 ^ toFloat n
+    Scale.major PitchClass.c
+        |> Scale.degree (modBy 7 n + 1)
+        |> Pitch.fromPitchClassInOctave (4 + n // 7)
+        |> Pitch.toFrequency

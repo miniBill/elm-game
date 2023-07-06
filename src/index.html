@@ -26,6 +26,9 @@
         }
         virtualCtx.update(nodes);
       });
+
+      window.onfocus = () => app.ports.onfocus.send({});
+      window.onblur = () => app.ports.onblur.send({});
     </script>
   </body>
 </html>
