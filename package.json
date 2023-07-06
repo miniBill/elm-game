@@ -1,0 +1,11 @@
+{
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "elm-watch": "^1.1.2"
+  },
+  "scripts": {
+    "start": "yarn build:prepare; concurrently \"yarn elm-watch hot\" \"cd dist; python -m http.server 8001\"",
+    "build:prepare": "mkdir -p dist; cp src/index.html src/favicon.svg src/*.js dist"
+  }
+}
