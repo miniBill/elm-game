@@ -131,7 +131,7 @@ applyAccelerations deltaT =
             newSpeed
                 |> Vector2d.scaleTo limiter
                 |> Vector2d.scaleBy 0.9
-                |> preventWiggle (Speed.metersPerSecond <| 0 * 0.01)
+                |> preventWiggle (Speed.metersPerSecond 0.01)
                 |> setSpeed
         )
         accelerationSpec
