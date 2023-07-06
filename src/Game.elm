@@ -1,6 +1,7 @@
-module Game exposing (Flags, Model, Msg, Position, World, init, subscriptions, time, update, view)
+module Game exposing (Flags, Model, Msg, World, init, subscriptions, time, update, view)
 
 import Browser.Events
+import Circle2d exposing (Circle2d)
 import Ecs
 import Ecs.Component as Component
 import Ecs.Config as Config
@@ -8,9 +9,10 @@ import Ecs.Entity as Entity
 import Ecs.System as System exposing (System)
 import Effect exposing (Effect)
 import Html exposing (Html)
-import Math.Vector3 exposing (Vec3)
+import Point2d exposing (Point2d)
 import Time
-import WebGL.Shape2d as Shape2d exposing (rgb)
+import Vector2d exposing (Vector2d)
+import WebGL.Shape2d as Shape2d exposing (Color, rgb)
 import WebGL.Shape2d.Render as Render exposing (Height, Width)
 import WebGL.Shape2d.SolidShape as SolidShape exposing (SolidShape)
 
@@ -24,6 +26,7 @@ type alias Flags =
 
 type Msg
     = Tick Time.Posix
+    | Resize Int Int
 
 
 type alias Model =
@@ -37,13 +40,8 @@ type alias Model =
 
 type alias World =
     { ecsConfig : Ecs.Config
-    , positionComponent : Ecs.Component Position
-    }
-
-
-type alias Position =
-    { x : Float
-    , y : Float
+    , positionComponent : Ecs.Component Vector2d
+    , velocityComponent : Ecs.Component Vector2d
     }
 
 
@@ -54,38 +52,27 @@ ecsConfigSpec =
     }
 
 
-positionSpec : Component.Spec Position World
+positionSpec : Component.Spec Vector2d World
 positionSpec =
     { get = .positionComponent
     , set = \positionComponent world -> { world | positionComponent = positionComponent }
     }
 
 
+velocitySpec : Component.Spec Vector2d World
+velocitySpec =
+    { get = .velocityComponent
+    , set = \velocityComponent world -> { world | velocityComponent = velocityComponent }
+    }
+
+
 positionSystem : System World
 positionSystem =
-    System.map
-        (\position ->
-            let
-                antiwiggle : Float -> Float
-                antiwiggle x =
-                    if abs x < 0.0001 then
-                        0
-
-                    else
-                        x
-
-                dx : Float
-                dx =
-                    max 0 <| antiwiggle <| -0.01 * position.x
-
-                dy : Float
-                dy =
-                    antiwiggle <| -0.01 * position.y
-            in
-            { x = position.x + dx
-            , y = position.y + dy
-            }
+    System.map2
+        (\( velocity, _ ) ( position, setPosition ) ->
+            setPosition (Vector2d.sum velocity position)
         )
+        velocitySpec
         positionSpec
 
 
@@ -99,8 +86,9 @@ view model =
     Shape2d.view
         { screen = model
         , entities =
-            [ viewBall model
-            , viewEdge model
+            [ viewBackground model
+            , viewBall model
+            , viewClipper model
             ]
                 |> SolidShape.group
                 |> Shape2d.scale scale scale
@@ -109,30 +97,63 @@ view model =
         }
 
 
-viewEdge : Model -> SolidShape
-viewEdge _ =
-    rectangle (rgb 0 0 0) 2 2
+viewBackground : Model -> SolidShape
+viewBackground _ =
+    rectangle bgColor 2 2
+
+
+bgColor : Color
+bgColor =
+    rgb 0 0 0
+
+
+viewClipper : Model -> SolidShape
+viewClipper _ =
+    SolidShape.group
+        [ rectangle bgColor 100 100
+            |> Shape2d.move (-101 + 100 / 2) 0
+        , rectangle bgColor 100 100
+            |> Shape2d.move (101 - 100 / 2) 0
+        , rectangle bgColor 100 100
+            |> Shape2d.move 0 (-101 + 100 / 2)
+        , rectangle bgColor 100 100
+            |> Shape2d.move 0 (101 - 100 / 2)
+        ]
 
 
 viewBall : Model -> SolidShape
 viewBall ({ ball } as model) =
     let
-        ( dx, dy ) =
-            case Component.get ball model.world.positionComponent of
-                Nothing ->
-                    ( 0, 0 )
-
-                Just { x, y } ->
-                    ( x, y )
+        center : Point2d
+        center =
+            Component.get ball model.world.positionComponent
+                |> Maybe.withDefault Vector2d.zero
+                |> Vector2d.components
+                |> Point2d.fromCoordinates
     in
-    rectangle (rgb 255 0 0) 0.2 0.2
-        |> Shape2d.move dx dy
+    circle (rgb 255 0 0) (Circle2d.withRadius 0.1 center)
 
 
-rectangle : Vec3 -> Width -> Height -> SolidShape
+rectangle : Color -> Width -> Height -> SolidShape
 rectangle color w h =
     Render.rect color
         |> SolidShape.shape w h
+
+
+circle : Color -> Circle2d -> SolidShape
+circle color circ =
+    let
+        r : Float
+        r =
+            Circle2d.radius circ
+
+        ( dx, dy ) =
+            Circle2d.centerPoint circ
+                |> Point2d.coordinates
+    in
+    Render.circle color
+        |> SolidShape.shape (r * 2) (r * 2)
+        |> Shape2d.move dx dy
 
 
 update : Msg -> Model -> ( Model, Effect )
@@ -148,25 +169,43 @@ update msg model =
             , Effect.none
             )
 
+        Resize w h ->
+            ( { model
+                | width = toFloat w
+                , height = toFloat h
+              }
+            , Effect.none
+            )
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Browser.Events.onAnimationFrame Tick
+    Sub.batch
+        [ Browser.Events.onAnimationFrame Tick
+        , Browser.Events.onResize Resize
+        ]
 
 
 init : Flags -> ( Model, Effect )
 init flags =
     let
-        ( ball, world ) =
+        initialWorld : World
+        initialWorld =
             { ecsConfig = Config.init
             , positionComponent = Component.empty
+            , velocityComponent = Component.empty
             }
+
+        ( ball, world ) =
+            initialWorld
                 |> Entity.create ecsConfigSpec
                 |> Entity.with
                     ( positionSpec
-                    , { x = 1
-                      , y = 0
-                      }
+                    , Vector2d.fromComponents ( 1, 0 )
+                    )
+                |> Entity.with
+                    ( velocitySpec
+                    , Vector2d.fromComponents ( 0, 0 )
                     )
 
         model : Model
