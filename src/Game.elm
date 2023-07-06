@@ -3,6 +3,7 @@ module Game exposing (Flags, Model, Msg, Vector2d, World, init, subscriptions, t
 import Acceleration exposing (MetersPerSecondSquared)
 import Browser.Events
 import Circle2d exposing (Circle2d)
+import Direction2d
 import Duration
 import Ecs
 import Ecs.Component as Component
@@ -34,6 +35,10 @@ type alias Circle2d =
     Circle2d.Circle2d Meters ()
 
 
+type alias Direction2d =
+    Direction2d.Direction2d ()
+
+
 type alias Flags =
     { now : Time.Posix
     , width : Width
@@ -58,7 +63,7 @@ type alias Model =
 type alias World =
     { ecsConfig : Ecs.Config
     , positionComponent : Ecs.Component (Vector2d Meters)
-    , velocityComponent : Ecs.Component (Vector2d MetersPerSecond)
+    , speedComponent : Ecs.Component (Vector2d MetersPerSecond)
     , accelerationComponent : Ecs.Component (Vector2d MetersPerSecondSquared)
     }
 
@@ -77,10 +82,10 @@ positionSpec =
     }
 
 
-velocitySpec : Component.Spec (Vector2d MetersPerSecond) World
-velocitySpec =
-    { get = .velocityComponent
-    , set = \velocityComponent world -> { world | velocityComponent = velocityComponent }
+speedSpec : Component.Spec (Vector2d MetersPerSecond) World
+speedSpec =
+    { get = .speedComponent
+    , set = \speedComponent world -> { world | speedComponent = speedComponent }
     }
 
 
@@ -94,23 +99,49 @@ accelerationSpec =
 positionSystem : System World
 positionSystem =
     System.map2
-        (\( velocity, _ ) ( position, setPosition ) ->
+        (\( speed, _ ) ( position, setPosition ) ->
             let
                 deltaX : Vector2d Meters
                 deltaX =
-                    Vector2d.for Duration.millisecond velocity
+                    Vector2d.for Duration.millisecond speed
             in
             setPosition (Vector2d.plus deltaX position)
         )
-        velocitySpec
+        speedSpec
         positionSpec
+
+
+speedSystem : System World
+speedSystem =
+    System.map2
+        (\( accelleration, _ ) ( speed, setSpeed ) ->
+            let
+                deltaV : Vector2d MetersPerSecond
+                deltaV =
+                    Vector2d.for Duration.millisecond accelleration
+
+                newSpeed : Vector2d MetersPerSecond
+                newSpeed =
+                    speed |> Vector2d.plus deltaV
+            in
+            speed
+                |> Vector2d.scaleTo
+                    (Quantity.min
+                        (Vector2d.length newSpeed)
+                        (Speed.metersPerSecond 1)
+                    )
+                |> antiwiggle
+                |> setSpeed
+        )
+        accelerationSpec
+        speedSpec
 
 
 {-| Force a very small vector to zero. Avoids "wiggles".
 -}
 antiwiggle : Vector2d.Vector2d units coordinates -> Vector2d.Vector2d units coordinates
 antiwiggle vec =
-    if abs (Quantity.unwrap (Vector2d.length vec)) < 0.001 then
+    if abs (Quantity.unwrap (Vector2d.length vec)) < 0.01 then
         Vector2d.zero
 
     else
@@ -122,7 +153,7 @@ view model =
     let
         scale : Float
         scale =
-            min model.width model.height / 2
+            min model.width model.height / 200
     in
     Shape2d.view
         { screen = model
@@ -151,14 +182,14 @@ bgColor =
 viewClipper : Model -> SolidShape
 viewClipper _ =
     SolidShape.group
-        [ rectangle bgColor 100 100
-            |> Shape2d.move (-101 + 100 / 2) 0
-        , rectangle bgColor 100 100
-            |> Shape2d.move (101 - 100 / 2) 0
-        , rectangle bgColor 100 100
-            |> Shape2d.move 0 (-101 + 100 / 2)
-        , rectangle bgColor 100 100
-            |> Shape2d.move 0 (101 - 100 / 2)
+        [ rectangle bgColor 1000 1000
+            |> Shape2d.move (-1001 + 1000 / 2) 0
+        , rectangle bgColor 1000 1000
+            |> Shape2d.move (1001 - 1000 / 2) 0
+        , rectangle bgColor 1000 1000
+            |> Shape2d.move 0 (-1001 + 1000 / 2)
+        , rectangle bgColor 1000 1000
+            |> Shape2d.move 0 (1001 - 1000 / 2)
         ]
 
 
@@ -172,7 +203,7 @@ viewBall ({ ball } as model) =
                 |> Vector2d.components
                 |> (\( x, y ) -> Point2d.xy x y)
     in
-    circle (rgb 255 0 0) (Circle2d.withRadius (Length.centimeters 10) center)
+    circle (rgb 255 0 0) (Circle2d.withRadius Length.meter center)
 
 
 rectangle : Color -> Width -> Height -> SolidShape
@@ -204,6 +235,7 @@ update msg model =
     case msg of
         Tick now ->
             let
+                world : World
                 world =
                     model.world
             in
@@ -218,6 +250,7 @@ update msg model =
                                 world.accelerationComponent
                     }
                         |> positionSystem
+                        |> speedSystem
               }
             , Effect.none
             )
@@ -232,8 +265,13 @@ update msg model =
 
 
 gamepadToAccelleration : Model -> Vector2d MetersPerSecondSquared
-gamepadToAccelleration _ =
-    Vector2d.zero
+gamepadToAccelleration model =
+    let
+        direction : Direction2d
+        direction =
+            Direction2d.degrees <| 0.0000000001 * toFloat (Time.posixToMillis model.now)
+    in
+    Vector2d.withLength (Acceleration.gees 1) direction
 
 
 subscriptions : Model -> Sub Msg
@@ -251,7 +289,7 @@ init flags =
         initialWorld =
             { ecsConfig = Config.init
             , positionComponent = Component.empty
-            , velocityComponent = Component.empty
+            , speedComponent = Component.empty
             , accelerationComponent = Component.empty
             }
 
@@ -259,7 +297,7 @@ init flags =
             initialWorld
                 |> Entity.create ecsConfigSpec
                 |> Entity.with ( positionSpec, Vector2d.zero )
-                |> Entity.with ( velocitySpec, Vector2d.zero )
+                |> Entity.with ( speedSpec, Vector2d.zero )
                 |> Entity.with ( accelerationSpec, Vector2d.zero )
 
         model : Model
