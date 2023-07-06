@@ -1,10 +1,11 @@
 port module Main exposing (Flags, Model, Msg, main)
 
 import Audio
-import Browser
 import Browser.Dom
 import Effect
 import Game
+import Gamepad.Simple
+import GamepadPort
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
@@ -47,14 +48,24 @@ type alias Flags =
     {}
 
 
-main : Program Flags Model Msg
+main : Gamepad.Simple.Program Flags Model Msg
 main =
-    Browser.element
+    Gamepad.Simple.element
+        gamepadConfig
         { init = init
         , update = update
         , view = view
         , subscriptions = subscriptions
         }
+
+
+gamepadConfig : Gamepad.Simple.Config Msg
+gamepadConfig =
+    { onAnimationFrame = \stuff -> GameMsg (Game.onAnimationFrame stuff)
+    , onBlob = GamepadPort.onBlob
+    , saveToLocalStorage = GamepadPort.saveToLocalStorage
+    , controls = Gamepad.Simple.basicControls
+    }
 
 
 audioCmd : InnerModel -> Cmd Msg

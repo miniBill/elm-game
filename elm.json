@@ -16,11 +16,13 @@
             "ianmackenzie/elm-geometry": "3.11.0",
             "ianmackenzie/elm-units": "2.10.0",
             "justgook/webgl-shape": "3.0.0",
-            "wolfadex/elm-ecs": "2.0.0"
+            "wolfadex/elm-ecs": "2.0.0",
+            "xarvh/elm-gamepad": "3.0.0"
         },
         "indirect": {
             "JoshuaHall/elm-fraction": "2.2.0",
             "elm/random": "1.0.0",
+            "elm/regex": "1.0.0",
             "elm/url": "1.0.0",
             "elm/virtual-dom": "1.0.3",
             "elm-community/list-extra": "8.7.0",

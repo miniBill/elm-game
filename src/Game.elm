@@ -1,9 +1,8 @@
-module Game exposing (Flags, Model, Msg, Vector2d, World, init, subscriptions, time, update, view)
+module Game exposing (Flags, Model, Msg, Vector2d, World, init, onAnimationFrame, subscriptions, time, update, view)
 
 import Acceleration exposing (MetersPerSecondSquared)
 import Browser.Events
 import Circle2d exposing (Circle2d)
-import Direction2d
 import Duration exposing (Duration)
 import Ecs
 import Ecs.Component as Component
@@ -11,10 +10,12 @@ import Ecs.Config as Config
 import Ecs.Entity as Entity
 import Ecs.System as System exposing (System)
 import Effect exposing (Effect)
+import Gamepad exposing (Gamepad)
+import Gamepad.Simple exposing (FrameStuff)
 import Html exposing (Html)
 import Length exposing (Meters)
 import Point2d
-import Quantity
+import Quantity exposing (Quantity)
 import Speed exposing (MetersPerSecond, Speed)
 import Time
 import Vector2d
@@ -35,10 +36,6 @@ type alias Circle2d =
     Circle2d.Circle2d Meters ()
 
 
-type alias Direction2d =
-    Direction2d.Direction2d ()
-
-
 type alias Flags =
     { now : Time.Posix
     , width : Width
@@ -47,7 +44,7 @@ type alias Flags =
 
 
 type Msg
-    = Tick Time.Posix
+    = Tick FrameStuff
     | Resize Int Int
 
 
@@ -96,8 +93,8 @@ accelerationSpec =
     }
 
 
-positionSystem : Duration -> System World
-positionSystem deltaT =
+applySpeeds : Duration -> System World
+applySpeeds deltaT =
     System.map2
         (\( speed, _ ) ( position, setPosition ) ->
             let
@@ -111,8 +108,8 @@ positionSystem deltaT =
         positionSpec
 
 
-speedSystem : Duration -> System World
-speedSystem deltaT =
+applyAccelerations : Duration -> System World
+applyAccelerations deltaT =
     System.map2
         (\( accelleration, _ ) ( speed, setSpeed ) ->
             let
@@ -129,22 +126,28 @@ speedSystem deltaT =
                 limiter =
                     Quantity.min
                         (Vector2d.length newSpeed)
-                        (Speed.kilometersPerHour 20)
+                        maxSpeed
             in
             newSpeed
                 |> Vector2d.scaleTo limiter
-                |> antiwiggle
+                |> Vector2d.scaleBy 0.9
+                |> preventWiggle (Speed.metersPerSecond <| 0 * 0.01)
                 |> setSpeed
         )
         accelerationSpec
         speedSpec
 
 
+maxSpeed : Speed
+maxSpeed =
+    Speed.kilometersPerHour 100
+
+
 {-| Force a very small vector to zero. Avoids "wiggles".
 -}
-antiwiggle : Vector2d.Vector2d units coordinates -> Vector2d.Vector2d units coordinates
-antiwiggle vec =
-    if abs (Quantity.unwrap (Vector2d.length vec)) < 0.01 then
+preventWiggle : Quantity Float units -> Vector2d.Vector2d units coordinates -> Vector2d.Vector2d units coordinates
+preventWiggle cap vec =
+    if Quantity.abs (Vector2d.length vec) |> Quantity.lessThan cap then
         Vector2d.zero
 
     else
@@ -198,7 +201,7 @@ viewClipper _ =
 
 clipColor : Color
 clipColor =
-    rgb 0 255 0
+    rgb 0 0 0
 
 
 viewBall : Model -> SolidShape
@@ -241,7 +244,7 @@ circle color circ =
 update : Msg -> Model -> ( Model, Effect )
 update msg model =
     case msg of
-        Tick now ->
+        Tick frameStuff ->
             let
                 world : World
                 world =
@@ -249,22 +252,34 @@ update msg model =
 
                 deltaT : Duration
                 deltaT =
-                    (Time.posixToMillis now - Time.posixToMillis model.now)
-                        |> toFloat
+                    frameStuff.dt
+                        -- Avoid jumps if focus is lost
+                        |> min 200
                         |> Duration.milliseconds
             in
             ( { model
-                | now = now
+                | now = frameStuff.timestamp
                 , world =
-                    { world
-                        | accelerationComponent =
-                            Component.set
+                    world
+                        |> System.update positionSpec
+                            (if
+                                List.any
+                                    (\gamepad -> Gamepad.wasReleased gamepad Gamepad.B)
+                                    frameStuff.gamepads
+                             then
+                                Component.set model.ball
+                                    Vector2d.zero
+
+                             else
+                                identity
+                            )
+                        |> System.update accelerationSpec
+                            (Component.set
                                 model.ball
-                                (gamepadToAccelleration model)
-                                world.accelerationComponent
-                    }
-                        |> positionSystem deltaT
-                        |> speedSystem deltaT
+                                (gamepadToAccelleration frameStuff.gamepads)
+                            )
+                        |> applySpeeds deltaT
+                        |> applyAccelerations deltaT
               }
             , Effect.none
             )
@@ -278,22 +293,25 @@ update msg model =
             )
 
 
-gamepadToAccelleration : Model -> Vector2d MetersPerSecondSquared
-gamepadToAccelleration model =
+gamepadToAccelleration : List Gamepad -> Vector2d MetersPerSecondSquared
+gamepadToAccelleration gamepads =
     let
-        direction : Direction2d
-        direction =
-            Direction2d.degrees <| toFloat (Time.posixToMillis model.now)
+        applyGamepad : Gamepad -> Vector2d MetersPerSecondSquared -> Vector2d MetersPerSecondSquared
+        applyGamepad gamepad acc =
+            acc
+                |> Vector2d.plus
+                    (Vector2d.fromRecord
+                        (\n -> Acceleration.metersPerSecondSquared <| n * 100)
+                        (Gamepad.leftStickPosition gamepad)
+                    )
     in
-    Vector2d.withLength (Acceleration.gees 1) direction
+    List.foldl applyGamepad Vector2d.zero gamepads
+        |> preventWiggle (Acceleration.metersPerSecondSquared 8)
 
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.batch
-        [ Browser.Events.onAnimationFrame Tick
-        , Browser.Events.onResize Resize
-        ]
+    Browser.Events.onResize Resize
 
 
 init : Flags -> ( Model, Effect )
@@ -331,3 +349,8 @@ init flags =
 time : Model -> Time.Posix
 time { now } =
     now
+
+
+onAnimationFrame : FrameStuff -> Msg
+onAnimationFrame frameStuff =
+    Tick frameStuff
