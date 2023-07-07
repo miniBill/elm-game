@@ -205,7 +205,22 @@ view model =
 
 viewPrompts : Model -> SolidShape
 viewPrompts model =
-    case Dict.get Xbox.b.path model.textures of
+    let
+        drawingSize : Float
+        drawingSize =
+            size / 20
+    in
+    [ viewImage Xbox.a drawingSize model
+        |> Shape2d.move (minx + drawingSize) (miny + drawingSize)
+    , viewImage Xbox.b drawingSize model
+        |> Shape2d.move (minx + drawingSize * 2) (miny + drawingSize)
+    ]
+        |> SolidShape.group
+
+
+viewImage : { path : String, width : Int, height : Int } -> Float -> Model -> SolidShape
+viewImage image drawingSize model =
+    case Dict.get image.path model.textures of
         Nothing ->
             SolidShape.group []
 
@@ -214,16 +229,11 @@ viewPrompts model =
                 textureSize : Vec2
                 textureSize =
                     vec2
-                        (toFloat Xbox.b.width)
-                        (toFloat Xbox.b.height)
-
-                drawingSize : Float
-                drawingSize =
-                    size / 20
+                        (toFloat image.width)
+                        (toFloat image.height)
             in
             Render.image texture textureSize
                 |> SolidShape.shape drawingSize drawingSize
-                |> Shape2d.move (minx + drawingSize) (miny + drawingSize)
 
 
 viewBackground : Model -> SolidShape
@@ -413,7 +423,9 @@ init flags =
             }
     in
     ( model
-    , [ ( Xbox.b.path, "img/" ++ Xbox.b.path ) ]
+    , [ ( Xbox.a.path, "img/" ++ Xbox.a.path )
+      , ( Xbox.b.path, "img/" ++ Xbox.b.path )
+      ]
         |> Effect.loadTextures
     )
 
