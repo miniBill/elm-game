@@ -2,8 +2,10 @@ module Generate exposing (main)
 
 {-| -}
 
+import Base64
 import Elm exposing (File)
 import Gen.CodeGen.Generate as Generate
+import Image
 import Json.Decode
 import Json.Encode
 import List.Extra
@@ -66,16 +68,34 @@ decodeFile =
 directoryToGen : String -> List InputFile -> File
 directoryToGen moduleName files =
     files
-        |> List.map fileToGen
+        |> List.filterMap fileToGen
         |> Elm.file [ moduleName ]
 
 
-fileToGen : InputFile -> Elm.Declaration
+fileToGen : InputFile -> Maybe Elm.Declaration
 fileToGen { filename, contents } =
     contents
-        |> Elm.string
-        |> Elm.declaration (toName filename)
-        |> Elm.expose
+        |> Base64.toBytes
+        |> Maybe.andThen Image.decode
+        |> Maybe.map
+            (\image ->
+                let
+                    name : String
+                    name =
+                        toName filename
+
+                    { width, height } =
+                        Image.dimensions image
+                in
+                Elm.record
+                    [ ( "key", Elm.string name )
+                    , ( "contents", Elm.string contents )
+                    , ( "width", Elm.int width )
+                    , ( "height", Elm.int height )
+                    ]
+                    |> Elm.declaration name
+                    |> Elm.expose
+            )
 
 
 toName : String -> String

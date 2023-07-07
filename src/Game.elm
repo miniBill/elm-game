@@ -15,7 +15,7 @@ import Gamepad exposing (Gamepad)
 import Gamepad.Simple exposing (FrameStuff)
 import Html exposing (Html)
 import Length exposing (Meters)
-import Math.Vector2 exposing (vec2)
+import Math.Vector2 exposing (Vec2, vec2)
 import Point2d
 import Quantity exposing (Quantity)
 import Speed exposing (MetersPerSecond, Speed)
@@ -168,6 +168,16 @@ size =
     200
 
 
+minx : Float
+minx =
+    -size / 2
+
+
+miny : Float
+miny =
+    -size / 2
+
+
 view : Model -> Html Msg
 view model =
     let
@@ -195,13 +205,25 @@ view model =
 
 viewPrompts : Model -> SolidShape
 viewPrompts model =
-    case Dict.get Xbox.b model.textures of
+    case Dict.get Xbox.b.key model.textures of
         Nothing ->
             SolidShape.group []
 
         Just texture ->
-            Render.image texture (vec2 64 64)
-                |> SolidShape.shape 10 10
+            let
+                textureSize : Vec2
+                textureSize =
+                    vec2
+                        (toFloat Xbox.b.width)
+                        (toFloat Xbox.b.height)
+
+                drawingSize : Float
+                drawingSize =
+                    size / 20
+            in
+            Render.image texture textureSize
+                |> SolidShape.shape drawingSize drawingSize
+                |> Shape2d.move (minx + drawingSize) (miny + drawingSize)
 
 
 viewBackground : Model -> SolidShape
@@ -218,13 +240,13 @@ viewClipper : Model -> SolidShape
 viewClipper _ =
     SolidShape.group
         [ rectangle clipColor (size * 5) (size * 5)
-            |> Shape2d.move (-(size * 11 / 2) + (size * 5) / 2) 0
+            |> Shape2d.move (-3 * size) 0
         , rectangle clipColor (size * 5) (size * 5)
-            |> Shape2d.move ((size * 11 / 2) - (size * 5) / 2) 0
+            |> Shape2d.move (3 * size) 0
         , rectangle clipColor (size * 5) (size * 5)
-            |> Shape2d.move 0 (-(size * 11 / 2) + (size * 5) / 2)
+            |> Shape2d.move 0 (-3 * size)
         , rectangle clipColor (size * 5) (size * 5)
-            |> Shape2d.move 0 ((size * 11 / 2) - (size * 5) / 2)
+            |> Shape2d.move 0 (3 * size)
         ]
 
 
@@ -391,7 +413,7 @@ init flags =
             }
     in
     ( model
-    , [ ( Xbox.b, "data:image/png;base64," ++ Xbox.b ) ]
+    , [ ( Xbox.b.key, "data:image/png;base64," ++ Xbox.b.contents ) ]
         |> Effect.loadTextures
     )
 
