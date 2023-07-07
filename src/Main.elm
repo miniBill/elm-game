@@ -95,7 +95,7 @@ update msg model =
                     | game = newGame
                 }
             , Cmd.batch
-                [ Effect.toCmd gameEffect
+                [ Effect.toCmd effectConfig gameEffect
                 , audioCmd innerModel
                 ]
             )
@@ -130,7 +130,7 @@ update msg model =
             in
             ( WebAudioReady innerModel
             , Cmd.batch
-                [ Effect.toCmd gameEffect
+                [ Effect.toCmd effectConfig gameEffect
                 , audioCmd innerModel
                 ]
             )
@@ -155,6 +155,13 @@ update msg model =
 
         ( OnBlur, WaitingWebAudioInit ) ->
             ( model, Cmd.none )
+
+
+effectConfig : Effect.Config Msg
+effectConfig =
+    { loadedTexture =
+        \key texture -> GameMsg <| Game.loadedTexture key texture
+    }
 
 
 view : Model -> Html Msg

@@ -1,8 +1,9 @@
-module Game exposing (Flags, Model, Msg, Vector2d, World, init, onAnimationFrame, subscriptions, time, update, view)
+module Game exposing (Flags, Model, Msg, Vector2d, World, init, loadedTexture, onAnimationFrame, subscriptions, time, update, view)
 
 import Acceleration exposing (MetersPerSecondSquared)
 import Browser.Events
 import Circle2d exposing (Circle2d)
+import Dict exposing (Dict)
 import Duration exposing (Duration)
 import Ecs
 import Ecs.Component as Component
@@ -14,14 +15,18 @@ import Gamepad exposing (Gamepad)
 import Gamepad.Simple exposing (FrameStuff)
 import Html exposing (Html)
 import Length exposing (Meters)
+import Math.Vector2 exposing (vec2)
 import Point2d
 import Quantity exposing (Quantity)
 import Speed exposing (MetersPerSecond, Speed)
 import Time
 import Vector2d
+import WebGL
 import WebGL.Shape2d as Shape2d exposing (Color, rgb)
 import WebGL.Shape2d.Render as Render exposing (Height, Width)
 import WebGL.Shape2d.SolidShape as SolidShape exposing (SolidShape)
+import WebGL.Texture as Texture exposing (Texture)
+import Xbox
 
 
 type alias Vector2d unit =
@@ -46,6 +51,7 @@ type alias Flags =
 type Msg
     = Tick FrameStuff
     | Resize Int Int
+    | LoadedTexture String (Result Texture.Error Texture)
 
 
 type alias Model =
@@ -54,6 +60,7 @@ type alias Model =
     , now : Time.Posix
     , width : Width
     , height : Height
+    , textures : Dict String Texture
     }
 
 
@@ -154,30 +161,52 @@ preventWiggle cap vec =
         vec
 
 
+{-| This is the width and height of the play area.
+-}
+size : number
+size =
+    200
+
+
 view : Model -> Html Msg
 view model =
     let
         scale : Float
         scale =
-            min model.width model.height / 200
-    in
-    Shape2d.view
-        { screen = model
-        , entities =
+            min model.width model.height / size
+
+        entities : List WebGL.Entity
+        entities =
             [ viewBackground model
             , viewBall model
             , viewClipper model
+            , viewPrompts model
             ]
                 |> SolidShape.group
                 |> Shape2d.scale scale scale
                 |> List.singleton
                 |> SolidShape.toEntities model
+    in
+    Shape2d.view
+        { screen = model
+        , entities = entities
         }
+
+
+viewPrompts : Model -> SolidShape
+viewPrompts model =
+    case Dict.get Xbox.b model.textures of
+        Nothing ->
+            SolidShape.group []
+
+        Just texture ->
+            Render.image texture (vec2 64 64)
+                |> SolidShape.shape 10 10
 
 
 viewBackground : Model -> SolidShape
 viewBackground _ =
-    rectangle bgColor 200 200
+    rectangle bgColor size size
 
 
 bgColor : Color
@@ -188,14 +217,14 @@ bgColor =
 viewClipper : Model -> SolidShape
 viewClipper _ =
     SolidShape.group
-        [ rectangle clipColor 1000 1000
-            |> Shape2d.move (-1100 + 1000 / 2) 0
-        , rectangle clipColor 1000 1000
-            |> Shape2d.move (1100 - 1000 / 2) 0
-        , rectangle clipColor 1000 1000
-            |> Shape2d.move 0 (-1100 + 1000 / 2)
-        , rectangle clipColor 1000 1000
-            |> Shape2d.move 0 (1100 - 1000 / 2)
+        [ rectangle clipColor (size * 5) (size * 5)
+            |> Shape2d.move (-(size * 11 / 2) + (size * 5) / 2) 0
+        , rectangle clipColor (size * 5) (size * 5)
+            |> Shape2d.move ((size * 11 / 2) - (size * 5) / 2) 0
+        , rectangle clipColor (size * 5) (size * 5)
+            |> Shape2d.move 0 (-(size * 11 / 2) + (size * 5) / 2)
+        , rectangle clipColor (size * 5) (size * 5)
+            |> Shape2d.move 0 ((size * 11 / 2) - (size * 5) / 2)
         ]
 
 
@@ -277,6 +306,12 @@ update msg model =
             , Effect.none
             )
 
+        LoadedTexture _ (Err _) ->
+            ( model, Effect.none )
+
+        LoadedTexture key (Ok texture) ->
+            ( { model | textures = Dict.insert key texture model.textures }, Effect.none )
+
 
 resetBall : FrameStuff -> Model -> System World
 resetBall frameStuff model =
@@ -352,10 +387,12 @@ init flags =
             , now = flags.now
             , width = flags.width
             , height = flags.height
+            , textures = Dict.empty
             }
     in
     ( model
-    , Effect.none
+    , [ ( Xbox.b, "data:image/png;base64," ++ Xbox.b ) ]
+        |> Effect.loadTextures
     )
 
 
@@ -367,3 +404,8 @@ time { now } =
 onAnimationFrame : FrameStuff -> Msg
 onAnimationFrame frameStuff =
     Tick frameStuff
+
+
+loadedTexture : String -> Result Texture.Error Texture -> Msg
+loadedTexture key content =
+    LoadedTexture key content
