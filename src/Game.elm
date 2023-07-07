@@ -205,7 +205,7 @@ view model =
 
 viewPrompts : Model -> SolidShape
 viewPrompts model =
-    case Dict.get Xbox.b.key model.textures of
+    case Dict.get Xbox.b.path model.textures of
         Nothing ->
             SolidShape.group []
 
@@ -413,7 +413,7 @@ init flags =
             }
     in
     ( model
-    , [ ( Xbox.b.key, "data:image/png;base64," ++ Xbox.b.contents ) ]
+    , [ ( Xbox.b.path, "img/" ++ Xbox.b.path ) ]
         |> Effect.loadTextures
     )
 

@@ -68,12 +68,12 @@ decodeFile =
 directoryToGen : String -> List InputFile -> File
 directoryToGen moduleName files =
     files
-        |> List.filterMap fileToGen
+        |> List.filterMap (fileToGen moduleName)
         |> Elm.file [ moduleName ]
 
 
-fileToGen : InputFile -> Maybe Elm.Declaration
-fileToGen { filename, contents } =
+fileToGen : String -> InputFile -> Maybe Elm.Declaration
+fileToGen moduleName { filename, contents } =
     contents
         |> Base64.toBytes
         |> Maybe.andThen Image.decode
@@ -88,8 +88,7 @@ fileToGen { filename, contents } =
                         Image.dimensions image
                 in
                 Elm.record
-                    [ ( "key", Elm.string name )
-                    , ( "contents", Elm.string contents )
+                    [ ( "path", Elm.string <| moduleName ++ "/" ++ name ++ ".png" )
                     , ( "width", Elm.int width )
                     , ( "height", Elm.int height )
                     ]
